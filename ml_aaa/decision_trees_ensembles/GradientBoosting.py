@@ -31,47 +31,56 @@ class DecisionTreeRegressor:
             preds[i] = preds_for_x
         return preds
 
-    def MSE(self, y):
-        y = y.flatten()
-        if len(y) > 0:
-            return np.mean((y - y.mean()) ** 2)
-        else:
-            return 0
-
-    def calc_Q(self, y_left, y_right):
-        n = len(y_left) + len(y_right)
-        return (len(y_left) / n) * self.MSE(y_left) + (len(y_right) / n) * self.MSE(y_right)
-
     def get_best_split(self, X, y):
-        m = len(X[0])  # кол-во признаков
-        n = len(X)  # кол-во объектов
-        best_err = float("inf")
+        y = y.reshape(-1)
+        n, m = X.shape
+        best_Q = float("inf")
         best_j = 0
         best_t = 0
         best_left_ids = 0
         best_right_ids = 0
         found_split = False
-
-        for idx in range(m):
-            feat = X[:, idx]
+        y_squared = y * y  # готовим y^2
+        
+        for j in range(m):  # перебор признаков
+            feat = X[:, j]
             order = np.argsort(feat)
             feat_sorted = feat[order]
+            y_sorted = y[order] 
+            y_squared_sorted = y_squared[order]
+            
+            # префиксные суммы
+            pref_y = np.cumsum(y_sorted)
+            pref_y_squared = np.cumsum(y_squared_sorted)
+            total_y = pref_y[-1]
+            total_y_squared = pref_y_squared[-1]
 
-            thrs = np.unique([(feat_sorted[i] + feat_sorted[i + 1]) / 2 for i in range(n - 1)])
-            for t in thrs:
-                mask_l = X[:, idx] <= t
-                mask_r = ~mask_l
-                if self.min_leaf_samples is not None:
-                    if mask_l.sum() < self.min_leaf_samples or mask_r.sum() < self.min_leaf_samples:
-                        continue # если при разбиении в одном из поддеревьев объектов меньше чем задано
-                found_split = True
-                err = self.calc_Q(y[mask_l], y[mask_r])
-                if err < best_err:
-                    best_err = err
-                    best_j = idx
-                    best_t = t
-                    best_left_ids = mask_l
-                    best_right_ids = mask_r
+            # перебор всех сплитов
+            for i in range(1, n):
+                if feat_sorted[i - 1] == feat_sorted[i]:
+                    continue
+                left_n = i
+                right_n = n - i
+
+                # считаем суммы слева/справа
+                left_sum = pref_y[i - 1]
+                left_sum_squared = pref_y_squared[i - 1]
+                right_sum = total_y - left_sum
+                right_sum_squared = total_y_squared - left_sum_squared
+
+                # считаем SSE слева/справа
+                left_sse = left_sum_squared - (left_sum * left_sum) / left_n
+                right_sse = right_sum_squared - (right_sum * right_sum) / right_n
+
+                # считаем качество сплита и обновляем лучший
+                Q = (left_sse + right_sse) / n
+                if Q < best_Q:
+                    best_Q = Q
+                    best_j = j
+                    best_t = (feat_sorted[i - 1] + feat_sorted[i]) / 2.0
+                    best_left_ids = feat <= best_t
+                    best_right_ids = ~best_left_ids
+                    found_split = True
 
         return best_j, best_t, best_left_ids, best_right_ids, found_split
 
@@ -132,6 +141,7 @@ class MyGradientBoostingRegressor:
         self.trees = []
 
     def fit(self, X, y):
+        y = y.reshape(-1)
         self.init_value = np.mean(y)
         pred = np.full(X.shape[0], self.init_value)
         
@@ -168,11 +178,12 @@ def print_matrix(matrix):
 def solution():
     n, m, k = map(int, input().split())
     X_train, y_train, X_test = read_input_matriсes(n, m, k)
+    y_train = y_train.reshape(-1)
 
     gb = MyGradientBoostingRegressor(
-        learning_rate=0.01,
-        max_depth=2,
-        n_estimators=80
+        learning_rate=0.1,
+        max_depth=3,
+        n_estimators=300
     )
     gb.fit(X_train, y_train)
 
